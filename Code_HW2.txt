@@ -1,3 +1,5 @@
+node.js
+-----------------------------------------------------------------------------------------------------
 const express = require('express');
 const mariadb = require('mariadb');
 const bodyParser = require('body-parser');
@@ -103,7 +105,7 @@ app.listen(port, () => {
     console.log(`Server is running on http://35.224.181.208:${port}`); // Use your external IP
 });
 
-node2----------------------------------------------------------------------------------------------------------
+node2---------------------------------------------------------------------------------------------------------------
 const express = require('express');
 const mariadb = require('mariadb');
 const bodyParser = require('body-parser');
@@ -208,3 +210,52 @@ app.post('/clear', async (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on http://35.224.181.208:${port}`); // Use your external IP
 });
+
+index.ejs
+--------------------------------------------------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Users</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 50%; }
+    table, th, td { border: 1px solid #ccc; }
+    th, td { padding: 8px; text-align: left; }
+    form { margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Users</h1>
+  <!-- Form to add a new user -->
+  <form action="/register" method="POST">
+    <input type="text" name="username" placeholder="Enter username" required>
+    <button type="submit">Add User</button>
+  </form>
+  <!-- Table of existing users -->
+  <h2>User List</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Created At</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (users && users.length) { %>
+        <% users.forEach(user => { %>
+          <tr>
+            <td><%= user.username %></td>
+            <td><%= user.created_at %></td>
+          </tr>
+        <% }); %>
+      <% } else { %>
+        <tr>
+          <td colspan="2">No users found.</td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+</body>
+</html>
