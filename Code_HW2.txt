@@ -1,0 +1,210 @@
+const express = require('express');
+const mariadb = require('mariadb');
+const bodyParser = require('body-parser');
+const axios = require('axios'); // For making HTTP requests to other VMs
+const app = express();
+const port = 80; // HTTP traffic uses port 80
+
+// List of external IPs of other VMs
+const otherVMs = [
+    'http://35.225.6.247:80', 
+];
+
+// Create a MariaDB connection pool
+const pool = mariadb.createPool({
+    host: '127.0.0.1', // Use localhost or internal IP for database connection
+    port: 3306, // Default MariaDB port
+    user: 'aman', // Database username
+    password: 'Rosepetal7!', // Database password
+    database: 'db', // Database name
+    connectionLimit: 5
+});
+
+// Use body-parser middleware to parse JSON and form data
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Route: Greeting endpoint
+app.get('/greeting', (req, res) => {
+    res.send('Hello World!');
+});
+
+// Helper function to propagate changes to other VMs
+const propagateToOtherVMs = async (endpoint, data) => {
+    try {
+        await Promise.all(
+            otherVMs.map(async (vm) => {
+                await axios.post(`${vm}${endpoint}`, data);
+            })
+        );
+    } catch (err) {
+        console.error(`Error propagating to other VMs: ${err.message}`);
+    }
+};
+
+// Route: Register a new user
+app.post('/register', async (req, res) => {
+    const { username } = req.body;
+    if (!username) {
+        return res.status(400).send({ error: 'Username is required' });
+    }
+
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query('INSERT INTO Users(username) VALUES (?)', [username]);
+        res.status(201).send({ message: 'User registered successfully' });
+
+        // Propagate the change to other VMs
+        await propagateToOtherVMs('/register', { username });
+    } catch (err) {
+        console.error(`Error registering user: ${err.message}`);
+        res.status(500).send({ error: 'Error registering user' });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// Route: List all users
+app.get('/list', async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        const users = await conn.query('SELECT username FROM Users');
+        res.status(200).send({ users: users.map(user => user.username) });
+    } catch (err) {
+        console.error(`Error retrieving users: ${err.message}`);
+        res.status(500).send({ error: 'Error retrieving users' });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// Route: Clear all users
+app.post('/clear', async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query('DELETE FROM Users');
+        res.status(200).send({ message: 'All users cleared successfully' });
+
+        // Propagate the change to other VMs
+        await propagateToOtherVMs('/clear', {});
+    } catch (err) {
+        console.error(`Error clearing users: ${err.message}`);
+        res.status(500).send({ error: 'Error clearing users' });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// Start the server
+app.listen(port, () => {
+    console.log(`Server is running on http://35.224.181.208:${port}`); // Use your external IP
+});
+
+node2----------------------------------------------------------------------------------------------------------
+const express = require('express');
+const mariadb = require('mariadb');
+const bodyParser = require('body-parser');
+const axios = require('axios'); // For making HTTP requests to other VMs
+const app = express();
+const port = 80; // HTTP traffic uses port 80
+
+// List of external IPs of other VMs
+const otherVMs = [
+    'http://35.224.181.208:80', 
+];
+
+// Create a MariaDB connection pool
+const pool = mariadb.createPool({
+    host: '127.0.0.1', // Use localhost or internal IP for database connection
+    port: 3306, // Default MariaDB port
+    user: 'aman', // Database username
+    password: 'Rosepetal7!', // Database password
+    database: 'db', // Database name
+    connectionLimit: 5
+});
+
+// Use body-parser middleware to parse JSON and form data
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Route: Greeting endpoint
+app.get('/greeting', (req, res) => {
+    res.send('Hello World!');
+});
+
+// Helper function to propagate changes to other VMs
+const propagateToOtherVMs = async (endpoint, data) => {
+    try {
+        await Promise.all(
+            otherVMs.map(async (vm) => {
+                await axios.post(`${vm}${endpoint}`, data);
+            })
+        );
+    } catch (err) {
+        console.error(`Error propagating to other VMs: ${err.message}`);
+    }
+};
+
+// Route: Register a new user
+app.post('/register', async (req, res) => {
+    const { username } = req.body;
+    if (!username) {
+        return res.status(400).send({ error: 'Username is required' });
+    }
+
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query('INSERT INTO Users(username) VALUES (?)', [username]);
+        res.status(201).send({ message: 'User registered successfully' });
+
+        // Propagate the change to other VMs
+        await propagateToOtherVMs('/register', { username });
+    } catch (err) {
+        console.error(`Error registering user: ${err.message}`);
+        res.status(500).send({ error: 'Error registering user' });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// Route: List all users
+app.get('/list', async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        const users = await conn.query('SELECT username FROM Users');
+        res.status(200).send({ users: users.map(user => user.username) });
+    } catch (err) {
+        console.error(`Error retrieving users: ${err.message}`);
+        res.status(500).send({ error: 'Error retrieving users' });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// Route: Clear all users
+app.post('/clear', async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query('DELETE FROM Users');
+        res.status(200).send({ message: 'All users cleared successfully' });
+
+        // Propagate the change to other VMs
+        await propagateToOtherVMs('/clear', {});
+    } catch (err) {
+        console.error(`Error clearing users: ${err.message}`);
+        res.status(500).send({ error: 'Error clearing users' });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// Start the server
+app.listen(port, () => {
+    console.log(`Server is running on http://35.224.181.208:${port}`); // Use your external IP
+});
