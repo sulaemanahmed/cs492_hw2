@@ -1,214 +1,145 @@
 node.js
 -----------------------------------------------------------------------------------------------------
-const express = require('express');
-const mariadb = require('mariadb');
-const bodyParser = require('body-parser');
-const axios = require('axios'); // For making HTTP requests to other VMs
-const app = express();
-const port = 80; // HTTP traffic uses port 80
-
-// List of external IPs of other VMs
-const otherVMs = [
-    'http://35.225.6.247:80', 
-];
-
-// Create a MariaDB connection pool
-const pool = mariadb.createPool({
-    host: '127.0.0.1', // Use localhost or internal IP for database connection
-    port: 3306, // Default MariaDB port
-    user: 'aman', // Database username
-    password: 'Rosepetal7!', // Database password
-    database: 'db', // Database name
-    connectionLimit: 5
-});
-
-// Use body-parser middleware to parse JSON and form data
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-// Route: Greeting endpoint
-app.get('/greeting', (req, res) => {
-    res.send('Hello World!');
-});
-
-// Helper function to propagate changes to other VMs
-const propagateToOtherVMs = async (endpoint, data) => {
-    try {
-        await Promise.all(
-            otherVMs.map(async (vm) => {
-                await axios.post(`${vm}${endpoint}`, data);
-            })
-        );
-    } catch (err) {
-        console.error(`Error propagating to other VMs: ${err.message}`);
-    }
+	const fetch = require('node-fetch');
+        const express = require('express');
+        const mariadb = require('mariadb');
+        const path = require('path');
+        const bodyParser = require('body-parser');
+//      const fetch = require('node-fetch');
+        const app = express();
+        const port = 80;
+//      const { writeToAllDatabases, readFromDatabase } = require('./db');
+// Configure both instances' URLs
+        const INSTANCES = {
+    primary: 'http://34.66.181.36', 
+    replica: 'http://34.135.44.193'  
 };
 
-// Route: Register a new user
+
+        const CURRENT_INSTANCE = process.env.INSTANCE_TYPE || 'primary'; //  'replica';
+	const OTHER_INSTANCE = CURRENT_INSTANCE === 'primary' ? INSTANCES.replica : INSTANCES.primary;
+
+
+        const pool = mariadb.createPool({
+        host: '127.0.0.1', // Use IP address to force TCP connection
+        port: 3306, 
+        user : 'suli',
+        password: 'Rosepetal7!', // Replace with your MariaDB password
+        database: 'db', // Our database name created above
+        connectionLimit: 5
+        });
+
+        app.use(express.json()); //
+        app.set('view engine', 'ejs');
+        app.set('views', path.join(__dirname, 'views'));
+        app.use(bodyParser.urlencoded({ extended: true }));
+        // Alternatively, you can use Express's built-in parsing:
+        // app.use(express.urlencoded({ extended: true }));
+        // Route: Display form and customer table
+
+        async function forwardRequest(endpoint, method, body) {
+    try {
+        const response = await fetch(`${OTHER_INSTANCE}${endpoint}`, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Forwarded': 'true' // prevent infinite forwarding
+            },
+            body: body ? JSON.stringify(body) : undefined
+        });
+        return await response.json();
+    } catch (err) {
+        console.error(`Failed to forward request to other instance: ${err}`);
+        
+    }
+}
+
+
+
+
+        app.get('/', (req, res) => {
+                   res.render('index');
+                });
+//// almost EVERYTHING ABOVE THIS IS THE CODE FROM THE WALKTHROUGH THAT I USED AS A 
+/// TEMPLATE FOR THE 2ND PART OF THE HOMEOWRK
+
+
+/// part 1 of hw GREETIIG
+
+app.get('/greeting', (req, res) => {
+  res.send('Hello World!');
+});
+
+
+// POST /register code
 app.post('/register', async (req, res) => {
-    const { username } = req.body;
+     const { username } = req.body;
     if (!username) {
-        return res.status(400).send({ error: 'Username is required' });
+        return res.status(400).json({ error: 'Missing username' });
     }
 
     let conn;
     try {
+        // Write to local database
         conn = await pool.getConnection();
-        await conn.query('INSERT INTO Users(username) VALUES (?)', [username]);
-        res.status(201).send({ message: 'User registered successfully' });
+	await conn.query('INSERT INTO Users(username, full_name) VALUES (?, ?)', [username, '']);
 
-        // Propagate the change to other VMs
-        await propagateToOtherVMs('/register', { username });
+        if (!req.headers['x-forwarded']) {
+            await forwardRequest('/register', 'POST', { username });
+        }
+
+        res.status(201).json({ message: `User ${username} registered successfully.` });
     } catch (err) {
-        console.error(`Error registering user: ${err.message}`);
-        res.status(500).send({ error: 'Error registering user' });
+        if (err.code === 'ER_DUP_ENTRY') {
+            res.status(409).json({ error: 'Username already exists.' });
+        } else {
+         res.status(500).json({ error: `Error registering user: ${err}` });
+        }
     } finally {
         if (conn) conn.release();
     }
 });
 
-// Route: List all users
+/// GET /list code
 app.get('/list', async (req, res) => {
     let conn;
     try {
         conn = await pool.getConnection();
-        const users = await conn.query('SELECT username FROM Users');
-        res.status(200).send({ users: users.map(user => user.username) });
+        const rows = await conn.query('SELECT username FROM Users');
+        const users = rows.filter(row => row.username).map(row => row.username);
+        res.json({ users });
     } catch (err) {
-        console.error(`Error retrieving users: ${err.message}`);
-        res.status(500).send({ error: 'Error retrieving users' });
+        res.status(500).json({ error: `Error fetching users: ${err}` });
     } finally {
         if (conn) conn.release();
     }
-});
+}); 
 
-// Route: Clear all users
+
+
+// POST /clear code
+
 app.post('/clear', async (req, res) => {
     let conn;
     try {
+        // Clear database
         conn = await pool.getConnection();
         await conn.query('DELETE FROM Users');
-        res.status(200).send({ message: 'All users cleared successfully' });
 
-        // Propagate the change to other VMs
-        await propagateToOtherVMs('/clear', {});
+        if (!req.headers['x-forwarded']) {
+            await forwardRequest('/clear', 'POST');
+        }
+
+        res.json({ message: 'All users have been cleared.' });
     } catch (err) {
-        console.error(`Error clearing users: ${err.message}`);
-        res.status(500).send({ error: 'Error clearing users' });
+        res.status(500).json({ error: `Error clearing users: ${err}` });
     } finally {
         if (conn) conn.release();
     }
 });
-
-// Start the server
 app.listen(port, () => {
-    console.log(`Server is running on http://35.224.181.208:${port}`); // Use your external IP
-});
-
-node2---------------------------------------------------------------------------------------------------------------
-const express = require('express');
-const mariadb = require('mariadb');
-const bodyParser = require('body-parser');
-const axios = require('axios'); // For making HTTP requests to other VMs
-const app = express();
-const port = 80; // HTTP traffic uses port 80
-
-// List of external IPs of other VMs
-const otherVMs = [
-    'http://35.224.181.208:80', 
-];
-
-// Create a MariaDB connection pool
-const pool = mariadb.createPool({
-    host: '127.0.0.1', // Use localhost or internal IP for database connection
-    port: 3306, // Default MariaDB port
-    user: 'aman', // Database username
-    password: 'Rosepetal7!', // Database password
-    database: 'db', // Database name
-    connectionLimit: 5
-});
-
-// Use body-parser middleware to parse JSON and form data
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-// Route: Greeting endpoint
-app.get('/greeting', (req, res) => {
-    res.send('Hello World!');
-});
-
-// Helper function to propagate changes to other VMs
-const propagateToOtherVMs = async (endpoint, data) => {
-    try {
-        await Promise.all(
-            otherVMs.map(async (vm) => {
-                await axios.post(`${vm}${endpoint}`, data);
-            })
-        );
-    } catch (err) {
-        console.error(`Error propagating to other VMs: ${err.message}`);
-    }
-};
-
-// Route: Register a new user
-app.post('/register', async (req, res) => {
-    const { username } = req.body;
-    if (!username) {
-        return res.status(400).send({ error: 'Username is required' });
-    }
-
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.query('INSERT INTO Users(username) VALUES (?)', [username]);
-        res.status(201).send({ message: 'User registered successfully' });
-
-        // Propagate the change to other VMs
-        await propagateToOtherVMs('/register', { username });
-    } catch (err) {
-        console.error(`Error registering user: ${err.message}`);
-        res.status(500).send({ error: 'Error registering user' });
-    } finally {
-        if (conn) conn.release();
-    }
-});
-
-// Route: List all users
-app.get('/list', async (req, res) => {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        const users = await conn.query('SELECT username FROM Users');
-        res.status(200).send({ users: users.map(user => user.username) });
-    } catch (err) {
-        console.error(`Error retrieving users: ${err.message}`);
-        res.status(500).send({ error: 'Error retrieving users' });
-    } finally {
-        if (conn) conn.release();
-    }
-});
-
-// Route: Clear all users
-app.post('/clear', async (req, res) => {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.query('DELETE FROM Users');
-        res.status(200).send({ message: 'All users cleared successfully' });
-
-        // Propagate the change to other VMs
-        await propagateToOtherVMs('/clear', {});
-    } catch (err) {
-        console.error(`Error clearing users: ${err.message}`);
-        res.status(500).send({ error: 'Error clearing users' });
-    } finally {
-        if (conn) conn.release();
-    }
-});
-
-// Start the server
-app.listen(port, () => {
-    console.log(`Server is running on http://35.224.181.208:${port}`); // Use your external IP
+    console.log(`Server is running on port ${port}`);
+    console.log(`Running as ${CURRENT_INSTANCE} instance`);
 });
 
 index.ejs
@@ -217,45 +148,118 @@ index.ejs
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Users</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    table { border-collapse: collapse; width: 50%; }
-    table, th, td { border: 1px solid #ccc; }
-    th, td { padding: 8px; text-align: left; }
-    form { margin-bottom: 20px; }
-  </style>
+  <title>CS 498 HW 2</title>
 </head>
 <body>
-  <h1>Users</h1>
-  <!-- Form to add a new user -->
-  <form action="/register" method="POST">
-    <input type="text" name="username" placeholder="Enter username" required>
-    <button type="submit">Add User</button>
-  </form>
-  <!-- Table of existing users -->
-  <h2>User List</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Username</th>
-        <th>Created At</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% if (users && users.length) { %>
-        <% users.forEach(user => { %>
-          <tr>
-            <td><%= user.username %></td>
-            <td><%= user.created_at %></td>
-          </tr>
-        <% }); %>
-      <% } else { %>
-        <tr>
-          <td colspan="2">No users found.</td>
-        </tr>
-      <% } %>
-    </tbody>
-  </table>
+  <h1>CS 498 HW 2</h1>
+
+  <!-- Greeting Section -->
+  <div>
+    
+    <button id="getGreeting">Get Greeting</button>
+    <div id="greetingOutput"></div>
+  </div>
+  <hr>
+
+  <!-- Registration Section -->
+  <div>
+    <form id="registerForm">
+
+      <input type="text" id="usernameInput" name="username" placeholder="Enter username" required>
+
+      <button type="submit">Register User</button>
+    </form>
+    <div id="registerMessage"></div>
+  </div>
+  <hr>
+
+  <!-- User List Section -->
+  <div>
+    <button id="refreshList">Refresh List</button>
+    <ul id="userList"></ul>
+  </div>
+  <hr>
+
+  <!-- Clear Users Section -->
+  <div>
+    <button id="clearUsers">Clear Users</button>
+    <div id="clearMessage"></div>
+  </div>
+
+<script>
+    
+    document.getElementById('getGreeting').addEventListener('click', function() {
+      fetch('/greeting')
+        .then(response => response.text())
+        .then(html => {
+          document.getElementById('greetingOutput').innerHTML = html;
+        })
+        .catch(err => {
+          document.getElementById('greetingOutput').innerText = 'Error: ' + err;
+        });
+    });
+
+    // user registration form submission
+    document.getElementById('registerForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const username = document.getElementById('usernameInput').value.trim();
+      if (!username) return;
+
+      fetch('/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      })
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('registerMessage').innerText = data.message || data.error;
+        if (data.message) {
+          document.getElementById('usernameInput').value = '';
+          refreshUserList(); // auto  refresh
+        }
+      })
+      .catch(err => {
+        document.getElementById('registerMessage').innerText = 'Error: ' + err;
+      });
+    });
+ function refreshUserList() {
+      fetch('/list')
+        .then(response => response.json())
+        .then(data => {
+          const userList = document.getElementById('userList');
+          userList.innerHTML = '';
+          if (data.users && data.users.length > 0) {
+            data.users.forEach(user => {
+              const li = document.createElement('li');
+              li.textContent = user;
+              userList.appendChild(li);
+            });
+          } else {
+            userList.innerHTML = '<li>No users found.</li>';
+          }
+        })
+        .catch(err => {
+          document.getElementById('userList').innerHTML = '<li>Error: ' + err + '</li>';
+        });
+    }
+
+    // Refresh user list on button
+    document.getElementById('refreshList').addEventListener('click', refreshUserList);
+
+    // Clear users on button 
+    document.getElementById('clearUsers').addEventListener('click', function() {
+      fetch('/clear', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('clearMessage').innerText = data.message || data.error;
+          refreshUserList();
+        })
+        .catch(err => {
+          document.getElementById('clearMessage').innerText = 'Error: ' + err;
+        });
+    });
+   refreshUserList();
+  </script>
 </body>
 </html>
+
